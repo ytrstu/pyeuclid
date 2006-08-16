@@ -423,10 +423,16 @@ points, however::
     Point2(6.00, 8.00)
 
 A **Matrix3** can be multiplied with a **Vector2** or any of the 2D geometry
-objects (**Point2**, **Line2**, **Circle**, etc).  
+objects (**Point2**, **Line2**, **Circle**, etc).  Only component pieces
+are affected.  For example, a circle is represented by a radius and center
+point: that center point will be transformed, but the circle will not
+be scaled or sheared by the matrix.
 
 A **Matrix4** can be multiplied with a **Vector3** or any of the 3D geometry
-objects (**Point3**, **Line3**, **Sphere**, etc).
+objects (**Point3**, **Line3**, **Sphere**, etc).  Only component pieces
+are affected.  For example, a sphere is represented by a radius and center
+point: that center point will be transformed, but the sphere will not
+be scaled or sheared by the matrix.
 
 For convenience, each of the matrix constructors are also available as
 in-place operators.  For example, instead of writing::
@@ -651,6 +657,10 @@ methods apply.  In particular, subtracting two points gives a vector::
 
 The following methods are also defined:
 
+``intersect(other)``
+    If *other* is a **Circle**, returns ``True`` iff the point is contained
+    within the circle.
+
 ``connect(other)``
     Returns a **LineSegment2** which is the minimum length line segment
     that can connect the two shapes.  *other* may be a **Point2**, **Line2**,
@@ -729,6 +739,9 @@ Internally there are two attributes: *c*, giving the center point and
 The following methods are supported:
 
 ``intersect(other)``
+    If *other* is a **Point2**, returns ``True`` iff the point is within
+    the circle.
+
     If *other* is a **Line2**, **Ray2** or **LineSegment2**, returns
     a **LineSegment2** giving the part of the line that intersects the
     circle, or None if there is no intersection.
@@ -781,6 +794,10 @@ methods apply.  In particular, subtracting two points gives a vector::
 
 The following methods are also defined:
 
+``intersect(other)``
+    If *other* is a **Sphere**, returns ``True`` iff the point lies within
+    the sphere.
+
 ``connect(other)``
     Returns a **LineSegment3** which is the minimum length line segment
     that can connect the two shapes.  *other* may be a **Point3**, **Line3**,
@@ -822,6 +839,11 @@ Vector3 *v*.  You can also access (but not set) the two endpoints
 
 The following methods are supported by all three classes:
 
+``intersect(other)``
+    If *other* is a **Sphere**, returns a **LineSegment3** giving the part of
+    the line that intersects the sphere, or ``None`` if there is no
+    intersection.
+
 ``connect(other)``
     Returns a **LineSegment3** which is the minimum length line segment
     that can connect the two shapes.  For two parallel lines, this
@@ -848,10 +870,54 @@ Internally there are two attributes: *c*, giving the center point and
 
 The following methods are supported:
 
+``intersect(other)``
+    If *other* is a **Point3**, returns ``True`` iff the point lies within
+    the sphere.
+
+    If *other* is a **Line3**, **Ray3** or **LineSegment3**, returns a
+    **LineSegment3** giving the part of the line that intersects the
+    sphere, or ``None`` if there is no intersection.
+
 ``connect(other)``
     Returns a **LineSegment3** which is the minimum length line segment
     that can connect the two shapes. *other* may be a **Point3**, **Line3**,
     **Ray3**, **LineSegment3** or **Sphere**.
+
+``distance(other)``
+    Returns the absolute minimum distance to *other*.  Internally this
+    simply returns the length of the result of ``connect``.
+
+Plane
+-----
+
+Planes can be constructed with any of:
+
+* three **Point3** lying on the plane
+* a **Point3** on the plane and a **Vector3** normal
+* a **Vector3** normal and constant *k* such that ``n.p = k`` for any point p.
+
+Internally planes are stored in the third format; as a normal ``n`` and
+constant scalar ``k``.
+
+The following methods are supported:
+
+``intersect(other)``
+    If *other* is a **Line3**, **Ray3** or **LineSegment3**, returns a
+    **Point3** at the point of intersection, or ``None`` if the line (segment)
+    and plane do not intersect or are parallel.
+
+    If *other* is a **Plane**, returns a **Line3** where the two planes
+    intersect, or ``None`` if the planes are parallel.
+
+``connect(other)``
+    Returns a **LineSegment3** which is the minimum length line segment
+    that can connect the two shapes. *other* may be a **Point3**, **Line3**,
+    **Ray3**, **LineSegment3**, **Sphere** or **Plane**.  For example,
+    to find the connecting line between a plane and a point::
+
+        >>> plane = Plane(Point3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0))
+        >>> plane.connect(Point3(5.0, 6.0, 7.0))
+        LineSegment3(<5.00, 0.00, 7.00> to <5.00, 6.00, 7.00>)
 
 ``distance(other)``
     Returns the absolute minimum distance to *other*.  Internally this
