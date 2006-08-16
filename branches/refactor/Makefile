@@ -1,4 +1,4 @@
-# $Id:$
+# $Id$
 
 MKHOWTO=/usr/share/doc/Python-2.5a2/tools/mkhowto
 REST_LATEX=/usr/lib/python2.4/site-packages/docutils/tools/python_latex.py
