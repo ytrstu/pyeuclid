@@ -1153,6 +1153,86 @@ class Quaternion:
 # Much maths thanks to Paul Bourke, http://astronomy.swin.edu.au/~pbourke
 # ---------------------------------------------------------------------------
 
+class Geometry:
+    def _connect_unimplemented(self, other):
+        raise AttributeError, 'Cannot connect %s to %s' % \
+            (self.__class__, other.__class__)
+
+    def _intersect_unimplemented(self, other):
+        raise AttributeError, 'Cannot intersect %s and %s' % \
+            (self.__class__, other.__class__)
+
+    _intersect_point2 = _intersect_unimplemented
+    _intersect_line2 = _intersect_unimplemented
+    _intersect_circle = _intersect_unimplemented
+    _connect_point2 = _connect_unimplemented
+    _connect_line2 = _connect_unimplemented
+    _connect_circle = _connect_unimplemented
+
+    _intersect_point3 = _intersect_unimplemented
+    _intersect_line3 = _intersect_unimplemented
+    _intersect_sphere = _intersect_unimplemented
+    _intersect_plane = _intersect_unimplemented
+    _connect_point3 = _connect_unimplemented
+    _connect_line3 = _connect_unimplemented
+    _connect_sphere = _connect_unimplemented
+    _connect_plane = _connect_unimplemented
+
+    def intersect(self, other):
+        raise NotImplementedError
+
+    def connect(self, other):
+        raise NotImplementedError
+
+    def distance(self, other):
+        c = self.connect(other)
+        if c:
+            return c.length
+        return 0.0
+
+def _intersect_point2_circle(P, C):
+    return abs(P - C.c) <= C.r
+    
+def _intersect_line2_line2(A, B):
+    d = B.v.y * A.v.x - B.v.x * A.v.y
+    if d == 0:
+        return None
+
+    dy = A.p.y - B.p.y
+    dx = A.p.x - B.p.x
+    ua = (B.v.x * dy - B.v.y * dx) / d
+    if not A._u_in(ua):
+        return None
+    ub = (A.v.x * dy - A.v.y * dx) / d
+    if not B._u_in(ub):
+        return None
+
+    return Point2(A.p.x + ua * A.v.x,
+                  A.p.y + ua * A.v.y)
+
+def _intersect_line2_circle(L, C):
+    a = L.v.magnitude_squared()
+    b = 2 * (L.v.x * (L.p.x - C.c.x) + \
+             L.v.y * (L.p.y - C.c.y))
+    c = C.c.magnitude_squared() + \
+        L.p.magnitude_squared() - \
+        2 * C.c.dot(L.p) - \
+        C.r ** 2
+    det = b ** 2 - 4 * a * c
+    if det < 0:
+        return None
+    sq = math.sqrt(det)
+    u1 = (-b + sq) / (2 * a)
+    u2 = (-b - sq) / (2 * a)
+    if not L._u_in(u1):
+        u1 = max(min(u1, 1.0), 0.0)
+    if not L._u_in(u2):
+        u2 = max(min(u2, 1.0), 0.0)
+    return LineSegment2(Point2(L.p.x + u1 * L.v.x,
+                               L.p.y + u1 * L.v.y),
+                        Point2(L.p.x + u2 * L.v.x,
+                               L.p.y + u2 * L.v.y))
+
 def _connect_point2_line2(P, L):
     d = L.v.magnitude_squared()
     assert d != 0
@@ -1160,14 +1240,15 @@ def _connect_point2_line2(P, L):
          (P.y - L.p.y) * L.v.y) / d
     if not L._u_in(u):
         u = max(min(u, 1.0), 0.0)
-    return P, Point2(L.p.x + u * L.v.x,
-                     L.p.y + u * L.v.y)
+    return LineSegment2(P, 
+                        Point2(L.p.x + u * L.v.x,
+                               L.p.y + u * L.v.y))
 
 def _connect_point2_circle(P, C):
     v = P - C.c
     v.normalize()
     v *= C.r
-    return P, Point2(C.c.x + v.x, C.c.y + v.y)
+    return LineSegment2(P, Point2(C.c.x + v.x, C.c.y + v.y))
 
 def _connect_line2_line2(A, B):
     d = B.v.y * A.v.x - B.v.x * A.v.y
@@ -1189,8 +1270,8 @@ def _connect_line2_line2(A, B):
     if not B._u_in(ub):
         ub = max(min(ub, 1.0), 0.0)
 
-    return (Point2(A.p.x + ua * A.v.x, A.p.y + ua * A.v.y),
-            Point2(B.p.x + ub * B.v.x, B.p.y + ub * B.v.y))
+    return LineSegment2(Point2(A.p.x + ua * A.v.x, A.p.y + ua * A.v.y),
+                        Point2(B.p.x + ub * B.v.x, B.p.y + ub * B.v.y))
 
 def _connect_circle_line2(C, L):
     d = L.v.magnitude_squared()
@@ -1202,29 +1283,42 @@ def _connect_circle_line2(C, L):
     v = (point - C.c)
     v.normalize()
     v *= C.r
-    return Point2(C.c.x + v.x, C.c.y + v.y), point
+    return LineSegment2(Point2(C.c.x + v.x, C.c.y + v.y), point)
 
-class Point2(Vector2):
+def _connect_circle_circle(A, B):
+    v = B.c - A.c
+    v.normalize()
+    return LineSegment2(Point2(A.c.x + v.x * A.r, A.c.y + v.y * A.r),
+                        Point2(B.c.x - v.x * B.r, B.c.y - v.y * B.r))
+
+
+class Point2(Vector2, Geometry):
     def __repr__(self):
         return 'Point2(%.2f, %.2f)' % (self.x, self.y)
 
     def intersect(self, other):
-        assert isinstance(other, Circle)
-        return other.intersect(self)
+        return other._intersect_point2(self)
+
+    def _intersect_circle(self, other):
+        return _intersect_point2_circle(self, other)
 
     def connect(self, other):
-        if isinstance(other, Point2):
-            return LineSegment2(self, other)
-        elif isinstance(other, Line2):
-            return LineSegment2(*_connect_point2_line2(self, other))
-        elif isinstance(other, Circle):
-            return LineSegment2(*_connect_point2_circle(self, other))
-        raise AttributeError, other
+        return other._connect_point2(self)
 
-    def distance(self, other):
-        return self.connect(other).length
+    def _connect_point2(self, other):
+        return LineSegment2(other, self)
+    
+    def _connect_line2(self, other):
+        c = _connect_point2_line2(self, other)
+        if c:
+            return c._swap()
 
-class Line2:
+    def _connect_circle(self, other):
+        c = _connect_point2_circle(self, other)
+        if c:
+            return c._swap()
+
+class Line2(Geometry):
     __slots__ = ['p', 'v']
 
     def __init__(self, *args):
@@ -1276,39 +1370,25 @@ class Line2:
         return True
 
     def intersect(self, other):
-        if isinstance(other, Line2):
-            d = other.v.y * self.v.x - other.v.x * self.v.y
-            if d == 0:
-                return None
+        return other._intersect_line2(self)
 
-            dy = self.p.y - other.p.y
-            dx = self.p.x - other.p.x
-            ua = (other.v.x * dy - other.v.y * dx) / d
-            if not self._u_in(ua):
-                return None
-            ub = (self.v.x * dy - self.v.y * dx) / d
-            if not other._u_in(ub):
-                return None
+    def _intersect_line2(self, other):
+        return _intersect_line2_line2(self, other)
 
-            return Point2(self.p.x + ua * self.v.x,
-                          self.p.y + ua * self.v.y)
-        elif isinstance(other, Circle):
-            return other.intersect(self)
-        raise AttributeError, other
+    def _intersect_circle(self, other):
+        return _intersect_line2_circle(self, other)
 
     def connect(self, other):
-        if isinstance(other, Point2):
-            p, l = _connect_point2_line2(other, self)
-            return LineSegment2(l, p)
-        elif isinstance(other, Line2):
-            return LineSegment2(*_connect_line2_line2(self, other))
-        elif isinstance(other, Circle):
-            p, l = _connect_circle_line2(other, self)
-            return LineSegment2(l, p)
-        raise AttributeError, other
+        return other._connect_line2(self)
 
-    def distance(self, other):
-        return self.connect(other).length
+    def _connect_point2(self, other):
+        return _connect_point2_line2(other, self)
+
+    def _connect_line2(self, other):
+        return _connect_line2_line2(other, self)
+
+    def _connect_circle(self, other):
+        return _connect_circle_line2(other, self)
 
 class Ray2(Line2):
     def __repr__(self):
@@ -1329,9 +1409,15 @@ class LineSegment2(Line2):
     def __abs__(self):
         return abs(self.v)
 
+    def _swap(self):
+        # used by connect methods to switch order of points
+        self.p = self.p2
+        self.v *= -1
+        return self
+
     length = property(lambda self: abs(self.v))
 
-class Circle:
+class Circle(Geometry):
     __slots__ = ['c', 'r']
 
     def __init__(self, center, radius):
@@ -1352,49 +1438,27 @@ class Circle:
         self.c = t * self.c
 
     def intersect(self, other):
-        if isinstance(other, Point2):
-            return abs(other - self.c) <= self.r
-        elif isinstance(other, Line2):
-            a = other.v.magnitude_squared()
-            b = 2 * (other.v.x * (other.p.x - self.c.x) + \
-                     other.v.y * (other.p.y - self.c.y))
-            c = self.c.magnitude_squared() + \
-                other.p.magnitude_squared() - \
-                2 * self.c.dot(other.p) - \
-                self.r ** 2
-            det = b ** 2 - 4 * a * c
-            if det < 0:
-                return None
-            sq = math.sqrt(det)
-            u1 = (-b + sq) / (2 * a)
-            u2 = (-b - sq) / (2 * a)
-            if not other._u_in(u1):
-                u1 = max(min(u1, 1.0), 0.0)
-            if not other._u_in(u2):
-                u2 = max(min(u2, 1.0), 0.0)
-            return LineSegment2(Point2(other.p.x + u1 * other.v.x,
-                                       other.p.y + u1 * other.v.y),
-                                Point2(other.p.x + u2 * other.v.x,
-                                       other.p.y + u2 * other.v.y))
-        raise AttributeError, other
+        return other._intersect_circle(self)
+
+    def _intersect_point2(self, other):
+        return _intersect_point2_circle(other, self)
+
+    def _intersect_line2(self, other):
+        return _intersect_line2_circle(other, self)
 
     def connect(self, other):
-        if isinstance(other, Point2):
-            p, c = _connect_point2_circle(other, self)
-            return LineSegment2(c, p)
-        elif isinstance(other, Line2): 
-            return LineSegment2(*_connect_circle_line2(self, other))
-        elif isinstance(other, Circle):
-            A = self
-            B = other
-            v = B.c - A.c
-            v.normalize()
-            return (Point2(A.c.x + v.x * A.r, A.c.y + v.y * A.r),
-                    Point2(B.c.x - v.x * B.r, B.c.y - v.y * B.r))
-        raise AttributeError, other  
+        return other._connect_circle(self)
 
-    def distance(self, other):
-        return self.connect(other).length
+    def _connect_point2(self, other):
+        return _connect_point2_circle(other, self)
+
+    def _connect_line2(self, other):
+        c = _connect_circle_line2(self, other)
+        if c:
+            return c._swap()
+
+    def _connect_circle(self, other):
+        return _connect_circle_circle(other, self)
 
 # 3D Geometry
 # -------------------------------------------------------------------------
@@ -1478,38 +1542,106 @@ def _connect_sphere_line3(S, L):
     v = (point - S.c)
     v.normalize()
     v *= S.r
-    return Point3(S.c.x + v.x, S.c.y + v.y, S.c.z + v.z), point
+    return LineSegment3(Point3(S.c.x + v.x, S.c.y + v.y, S.c.z + v.z), 
+                        point)
+
+def _connect_sphere_sphere(A, B):
+    v = B.c - A.c
+    v.normalize()
+    return LineSegment3(Point3(A.c.x + v.x * A.r,
+                               A.c.y + v.y * A.r,
+                               A.c.x + v.z * A.r),
+                        Point3(B.c.x + v.x * B.r,
+                               B.c.y + v.y * B.r,
+                               B.c.x + v.z * B.r))
 
 def _connect_sphere_plane(S, P):
-    p1, p2 = _connect_point3_plane(S.c, P)
+    c = _connect_point3_plane(S.c, P)
+    if not c:
+        return None
+    p2 = c.p2
     v = p2 - S.c
     v.normalize()
     v *= S.r
-    return Point3(S.c.x + v.x, S.c.y + v.y, S.c.z + v.z), p2
+    return LineSegment3(Point3(S.c.x + v.x, S.c.y + v.y, S.c.z + v.z), 
+                        p2)
 
-class Geometry:
-    def _connect_unimplemented(self, other):
-        raise AttributeError, 'Cannot connect %s to %s' % \
-            (self.__class__, other.__class__)
+def _connect_plane_plane(A, B):
+    if A.n.cross(B.n):
+        # Planes intersect
+        return None
+    else:
+        # Planes are parallel, connect to arbitrary point
+        return _connect_point3_plane(A._get_point(), B)
 
-    _connect_point3 = _connect_unimplemented
-    _connect_line3 = _connect_unimplemented
-    _connect_sphere = _connect_unimplemented
-    _connect_plane = _connect_unimplemented
+def _intersect_point3_sphere(P, S):
+    return abs(P - S.c) <= S.r
+    
+def _intersect_line3_sphere(L, S):
+    a = L.v.magnitude_squared()
+    b = 2 * (L.v.x * (L.p.x - S.c.x) + \
+             L.v.y * (L.p.y - S.c.y) + \
+             L.v.z * (L.p.z - S.c.z))
+    c = S.c.magnitude_squared() + \
+        L.p.magnitude_squared() - \
+        2 * S.c.dot(L.p) - \
+        S.r ** 2
+    det = b ** 2 - 4 * a * c
+    if det < 0:
+        return None
+    sq = math.sqrt(det)
+    u1 = (-b + sq) / (2 * a)
+    u2 = (-b - sq) / (2 * a)
+    if not L._u_in(u1):
+        u1 = max(min(u1, 1.0), 0.0)
+    if not L._u_in(u2):
+        u2 = max(min(u2, 1.0), 0.0)
+    return LineSegment3(Point3(L.p.x + u1 * L.v.x,
+                               L.p.y + u1 * L.v.y,
+                               L.p.z + u1 * L.v.z),
+                        Point3(L.p.x + u2 * L.v.x,
+                               L.p.y + u2 * L.v.y,
+                               L.p.z + u2 * L.v.z))
 
-    def distance(self, other):
-        c = self.connect(other)
-        if c:
-            return c.length
-        return 0.0
+def _intersect_line3_plane(L, P):
+    d = P.n.dot(L.v)
+    if not d:
+        # Parallel
+        return None
+    u = (P.k - P.n.dot(L.p)) / d
+    if not L._u_in(u):
+        return None
+    return Point3(L.p.x + u * L.v.x,
+                  L.p.y + u * L.v.y,
+                  L.p.z + u * L.v.z)
+
+def _intersect_plane_plane(A, B):
+    n1_m = A.n.magnitude_squared()
+    n2_m = B.n.magnitude_squared()
+    n1d2 = A.n.dot(B.n)
+    det = n1_m * n2_m - n1d2 ** 2
+    if det == 0:
+        # Parallel
+        return None
+    c1 = (A.k * n2_m - B.k * n1d2) / det
+    c2 = (B.k * n1_m - A.k * n1d2) / det
+    return Line3(Point3(c1 * A.n.x + c2 * B.n.x,
+                        c1 * A.n.y + c2 * B.n.y,
+                        c1 * A.n.z + c2 * B.n.z), 
+                 A.n.cross(B.n))
 
 class Point3(Vector3, Geometry):
     def __repr__(self):
         return 'Point3(%.2f, %.2f, %.2f)' % (self.x, self.y, self.z)
 
     def intersect(self, other):
-        assert isinstance(other, Sphere)
-        other.intersect(self)
+        return other._intersect_point3(self)
+
+    def _intersect_sphere(self, other):
+        return _intersect_point3_sphere(self, other)
+
+    def connect(self, other):
+        other._connect_point3(self)
 
     def _connect_point3(self, other):
         if self != other:
@@ -1523,6 +1655,11 @@ class Point3(Vector3, Geometry):
         
     def _connect_sphere(self, other):
         c = _connect_point3_sphere(self, other)
+        if c:
+            return c._swap()
+
+    def _connect_plane(self, other):
+        c = _connect_point3_plane(self, other)
         if c:
             return c._swap()
 
@@ -1579,23 +1716,27 @@ class Line3:
         return True
 
     def intersect(self, other):
-        if isinstance(other, Sphere):
-            return other.intersect(self)
-        raise AttributeError, other
+        return other._intersect_line3(self)
+
+    def _intersect_sphere(self, other):
+        return _intersect_line3_sphere(self, other)
 
     def connect(self, other):
-        if isinstance(other, Point3):
-            p, l = _connect_point3_line3(other, self)
-            return LineSegment3(l, p)
-        elif isinstance(other, Line3):
-            return LineSegment3(*_connect_line3_line3(self, other))
-        elif isinstance(other, Sphere):
-            p, l = _connect_sphere_line3(other, self)
-            return LineSegment3(l, p)
-        raise AttributeError, other
+        return other._connect_line3(self)
 
-    def distance(self, other):
-        return self.connect(other).length
+    def _connect_point3(self, other):
+        return _connect_point3_line3(other, self)
+
+    def _connect_line3(self, other):
+        return _connect_line3_line3(other, self)
+
+    def _connect_sphere(self, other):
+        return _connect_sphere_line3(other, self)
+
+    def _connect_plane(self, other):
+        c = _connect_line3_plane(self, other)
+        if c:
+            return c
 
 class Ray3(Line3):
     def __repr__(self):
@@ -1646,56 +1787,32 @@ class Sphere:
         self.c = t * self.c
 
     def intersect(self, other):
-        if isinstance(other, Point3):
-            return abs(other - self.c) <= self.r
-        elif isinstance(other, Line3):
-            a = other.v.magnitude_squared()
-            b = 2 * (other.v.x * (other.p.x - self.c.x) + \
-                     other.v.y * (other.p.y - self.c.y) + \
-                     other.v.z * (other.p.z - self.c.z))
-            c = self.c.magnitude_squared() + \
-                other.p.magnitude_squared() - \
-                2 * self.c.dot(other.p) - \
-                self.r ** 2
-            det = b ** 2 - 4 * a * c
-            if det < 0:
-                return None
-            sq = math.sqrt(det)
-            u1 = (-b + sq) / (2 * a)
-            u2 = (-b - sq) / (2 * a)
-            if not other._u_in(u1):
-                u1 = max(min(u1, 1.0), 0.0)
-            if not other._u_in(u2):
-                u2 = max(min(u2, 1.0), 0.0)
-            return LineSegment3(Point3(other.p.x + u1 * other.v.x,
-                                       other.p.y + u1 * other.v.y,
-                                       other.p.z + u1 * other.v.z),
-                                Point3(other.p.x + u2 * other.v.x,
-                                       other.p.y + u2 * other.v.y,
-                                       other.p.z + u2 * other.v.z))
-        raise AttributeError, other
+        return other._intersect_sphere(self)
+
+    def _intersect_point3(self, other):
+        return _intersect_point3_sphere(other, self)
+
+    def _intersect_line3(self, other):
+        return _intersect_line3_sphere(other, self)
 
     def connect(self, other):
-        if isinstance(other, Point3):
-            p, s = _connect_point3_sphere(other, self)
-            return LineSegment3(s, p)
-        elif isinstance(other, Line3):
-            return LineSegment3(*_connect_sphere_line3(self, other))
-        elif isinstance(other, Sphere):
-            A = self
-            B = other
-            v = B.c - A.c
-            v.normalize()
-            return (Point3(A.c.x + v.x * A.r,
-                           A.c.y + v.y * A.r,
-                           A.c.x + v.z * A.r),
-                    Point3(B.c.x + v.x * B.r,
-                           B.c.y + v.y * B.r,
-                           B.c.x + v.z * B.r))
-        raise AttributeError, other
+        return other._connect_sphere(self)
 
-    def distance(self, other):
-        return self.connect(other).length
+    def _connect_point3(self, other):
+        return _connect_point3_sphere(other, self)
+
+    def _connect_line3(self, other):
+        c = _connect_sphere_line3(self, other)
+        if c:
+            return c._swap()
+
+    def _connect_sphere(self, other):
+        return _connect_sphere_sphere(other, self)
+
+    def _connect_plane(self, other):
+        c = _connect_sphere_plane(self, other)
+        if c:
+            return c
 
 class Plane:
     # n.p = k, where n is normal, p is point on plane, k is constant scalar
@@ -1748,57 +1865,26 @@ class Plane:
         self.k = self.n.dot(p)
 
     def intersect(self, other):
-        if isinstance(other, Line3):
-            d = self.n.dot(other.v)
-            if not d:
-                # Parallel
-                return None
-            u = (self.k - self.n.dot(other.p)) / d
-            if not other._u_in(u):
-                return None
-            return Point3(other.p.x + u * other.v.x,
-                          other.p.y + u * other.v.y,
-                          other.p.z + u * other.v.z)
-        elif isinstance(other, Plane):
-            n1_m = self.n.magnitude_squared()
-            n2_m = other.n.magnitude_squared()
-            n1d2 = self.n.dot(other.n)
-            det = n1_m * n2_m - n1d2 ** 2
-            if det == 0:
-                # Parallel
-                return None
-            c1 = (self.k * n2_m - other.k * n1d2) / det
-            c2 = (other.k * n1_m - self.k * n1d2) / det
-            return Line3(Point3(c1 * self.n.x + c2 * other.n.x,
-                                c1 * self.n.y + c2 * other.n.y,
-                                c1 * self.n.z + c2 * other.n.z), 
-                         self.n.cross(other.n))
-        elif isinstance(other, Sphere):
-            raise NotImplementedError
-        raise AttributeError, other
+        return other._intersect_plane(self)
+
+    def _intersect_line3(self, other):
+        return _intersect_line3_plane(other, self)
+
+    def _intersect_plane(self, other):
+        return _intersect_plane_plane(self, other)
 
     def connect(self, other):
-        if isinstance(other, Point3):
-            p, pl = _connect_point3_plane(other, self)
-            return LineSegment3(pl, p)
-        elif isinstance(other, Line3):
-            l, p = _connect_line3_plane(other, self)
-            return LineSegment3(p, l)
-        elif isinstance(other, Sphere):
-            s, p = _connect_sphere_plane(other, self)
-            return LineSegment3(p, s)
-        elif isinstance(other, Plane):
-            if self.n.cross(other.n):
-                # Planes intersect
-                return None
-            else:
-                # Planes are parallel, connect to arbitrary point
-                p1, p2 = _connect_point3_plane(self._get_point(), other)
-                return LineSegment3(p1, p2)
-        raise AttributeError, other
+        return other._connect_plane(self)
 
-    def distance(self, other):
-        c = self.connect(other)
-        if c:
-            return c
-        return 0.
+    def _connect_point3(self, other):
+        return _connect_point3_plane(other, self)
+
+    def _connect_line3(self, other):
+        return _connect_line3_plane(other, self)
+
+    def _connect_sphere(self, other):
+        return _connect_sphere_plane(other, self)
+
+    def _connect_plane(self, other):
+        return _connect_plane_plane(other, self)
+
